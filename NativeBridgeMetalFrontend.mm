@@ -419,6 +419,8 @@ static void endRenderServerAfterGpuLoss() {
 }
 // The pixel formats textures were asked for (first eight distinct), with how many were refused: native_bridge_metal_formats.
 static uint32_t gFormats[8];static unsigned gFormatCount;static std::atomic<uint64_t> gTextureRefusals;
+// ASTC textures made (formats 186-218, which QuartzCore makes images of from their texture data on a device that is not virtual).
+static std::atomic<uint64_t> gAstcTextures;
 // Textures over IOSurfaces: made, refused, and how many of the requests named a planar surface.
 static std::atomic<uint64_t> gSurfaceTextures,gSurfaceRefusals,gSurfacePlanar,gSurfaceB3a8;
 static std::atomic<uint64_t> gSurfaceRotations[5];
@@ -473,6 +475,7 @@ static void refuseSurface(uint32_t step,IOSurfaceRef surface,MTLTextureDescripto
  std::lock_guard<std::mutex> lock(gProblemLock);gSurfaceLastRefusal=r;
 }
 static void noteFormat(uint32_t format,bool made) {
+ if(made && format>=186 && format<=218)gAstcTextures++;
  std::lock_guard<std::mutex> lock(gProblemLock);
  if(!made)gTextureRefusals++;
  for(unsigned i=0;i<gFormatCount;i++)if(gFormats[i]==format)return;
@@ -4128,8 +4131,9 @@ extern "C" size_t native_bridge_metal_status(char *out,size_t size) {
 }
 
 static size_t native_bridge_metal_formats_locked(char *out,size_t size) {
- int n=snprintf(out,size,"tex x%llu s%llu/%llu p%llu b%llu f",(unsigned long long)gTextureRefusals.load(),(unsigned long long)gSurfaceTextures.load(),
-              (unsigned long long)gSurfaceRefusals.load(),(unsigned long long)gSurfacePlanar.load(),(unsigned long long)gSurfaceB3a8.load());
+ int n=snprintf(out,size,"tex x%llu s%llu/%llu p%llu b%llu a%llu f",(unsigned long long)gTextureRefusals.load(),(unsigned long long)gSurfaceTextures.load(),
+              (unsigned long long)gSurfaceRefusals.load(),(unsigned long long)gSurfacePlanar.load(),(unsigned long long)gSurfaceB3a8.load(),
+              (unsigned long long)gAstcTextures.load());
  for(unsigned i=0;i<gFormatCount && n>0 && (size_t)n<size;i++)n+=snprintf(out+n,size-(size_t)n,"%u ",gFormats[i]);
  return n>0?(size_t)n:0;
 }

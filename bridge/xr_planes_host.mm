@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Host check of Apple's extended-range render targets through the frontend (XrTargetsCheck.h), against the host's own Metal: the
+// Host check of Apple's extended-range render targets (XrTargetsCheck.h) and ASTC textures (AstcCheck.h) through the frontend, against the host's own Metal: the
 // bridge's bytes must match Metal's, and Metal's must still be the ones the plugin's on-device check expects.
 // usage: xr_planes_host LOADER CACHE
 #import <Foundation/Foundation.h>
@@ -7,6 +7,7 @@
 #include <cstdio>
 #include "../NativeBridgeMetalFrontend.h"
 #include "../XrTargetsCheck.h"
+#include "../AstcCheck.h"
 
 extern "C" {volatile uint32_t native_prime_compiling, native_prime_libraries_done, native_prime_libraries_total, native_prime_made, native_prime_rate;}
 
@@ -29,6 +30,9 @@ int main(int argc, char **argv) {
                 }
         }
         failed += xrcheck::checkAgainstExpected(bridge, [](const char *text) {std::printf("  %s\n", text);});
+        // ASTC (AstcCheck.h): the host's Metal must still read the bytes recorded, and the bridge the same.
+        failed += astccheck::check(host, [](const char *text) {std::printf("  host astc %s\n", text);});
+        failed += astccheck::check(bridge, [](const char *text) {std::printf("  astc %s\n", text);});
         std::printf(failed ? "FAIL extended-range targets: %d differences\n" : "PASS extended-range targets match Metal\n", failed);
         return failed ? 1 : 0;
     }

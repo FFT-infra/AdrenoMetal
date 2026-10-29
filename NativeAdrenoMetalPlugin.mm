@@ -24,6 +24,7 @@
 #include "PrimeShaders.h"
 #include "ExceptionDiag.h"
 #include "XrTargetsCheck.h"
+#include "AstcCheck.h"
 #include <string>
 
 @interface _MTLDevice : NSObject
@@ -372,6 +373,9 @@ static id deviceForPort(unsigned port) {
                         }
                         line += part;
                     });
+                    // ASTC textures (AstcCheck.h), which QuartzCore makes images of straight from their texture data on such a device.
+                    line += " | astc";
+                    astccheck::check(MTLCreateSystemDefaultDevice(), [&](const char *text) {line += " "; line += text;});
                     native_bridge_metal_note(line.c_str());
                     if (!refusal.empty()) native_bridge_metal_note(refusal.c_str());
                 }
