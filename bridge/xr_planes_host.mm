@@ -18,7 +18,7 @@ int main(int argc, char **argv) {
         id<MTLDevice> bridge = native_bridge_metal_open(argv[1], argv[2], 0x6e6d62, nullptr);
         if (!host || !bridge) {std::printf("FAIL device\n"); return 1;}
         int failed = 0;
-        for (int f = 0; f < 5; ++f) {
+        for (int f = 0; f < xrcheck::kFormatCount; ++f) {
             NSString *hostError = nil;
             const std::vector<uint8_t> want = xrcheck::render(host, xrcheck::kFormats[f], &hostError);
             if (want.empty()) {std::printf("FAIL format %lu: host %s\n", (unsigned long)xrcheck::kFormats[f], hostError.UTF8String); ++failed; continue;}

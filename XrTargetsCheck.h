@@ -25,15 +25,18 @@ static NSString *const kShaders = @"#include <metal_stdlib>\n"
     "fragment float4 xr_sample(float4 pos [[position]], texture2d<float> t [[texture(0)]], sampler s [[sampler(0)]]) {\n"
     "    return t.sample(s, float2(pos.x - 64.0, pos.y) / 64.0);\n"
     "}\n";
-// 115 RGBA16Float (a virtual device's), 550 RGB10A8_2P_XR10 and 551 its sRGB twin, 552 BGRA10_XR, 554 BGR10_XR.
-static const MTLPixelFormat kFormats[5] = {(MTLPixelFormat)115, (MTLPixelFormat)550, (MTLPixelFormat)551, (MTLPixelFormat)552,
-                                           (MTLPixelFormat)554};
+// 115 RGBA16Float (a virtual device's), 550 RGB10A8_2P_XR10 and 551 its sRGB twin, 552 BGRA10_XR, 554 BGR10_XR, and 43 BGR5A1Unorm,
+// which create_surface_with_properties makes where it made BGRA8Unorm once the context's flag 0x200 (set on a device that is not
+// virtual) is on: the format lists of the runs with the virtualized answer at 0 have it, the earlier ones do not.
+static const int kFormatCount = 6;
+static const MTLPixelFormat kFormats[kFormatCount] = {(MTLPixelFormat)115, (MTLPixelFormat)550, (MTLPixelFormat)551, (MTLPixelFormat)552,
+                                                      (MTLPixelFormat)554, (MTLPixelFormat)43};
 // Read blended, read cleared, sampled blended, sampled cleared.
 static const uint32_t kPoints[4][2] = {{8, 32}, {48, 32}, {kSize + 8, 32}, {kSize + 48, 32}};
 // The BGRA bytes Metal gave at the points, as one word (byte 0 first), per format (an Apple M-series Mac under macOS 26.5).
-static const uint32_t kExpected[5][4] = {{0x60409fff, 0xbf8040ff, 0x60409fff, 0xbf8040ff}, {0x60409fff, 0xbf8040ff, 0x60409fff, 0xbf8040ff},
+static const uint32_t kExpected[kFormatCount][4] = {{0x60409fff, 0xbf8040ff, 0x60409fff, 0xbf8040ff}, {0x60409fff, 0xbf8040ff, 0x60409fff, 0xbf8040ff},
                                          {0x60409fff, 0xbf7f40ff, 0x60409fff, 0xbf7f40ff}, {0x60409fff, 0xbf8040ff, 0x60409fff, 0xbf8040ff},
-                                         {0x60409fff, 0xbf8040ff, 0x60409fff, 0xbf8040ff}};
+                                         {0x60409fff, 0xbf8040ff, 0x60409fff, 0xbf8040ff}, {0x63429cff, 0xbd8442ff, 0x63429cff, 0xbd8442ff}};
 
 static uint32_t word(const std::vector<uint8_t> &bytes, int point) {
     const size_t at = (kPoints[point][1] * kSize * 2 + kPoints[point][0]) * 4;
@@ -127,7 +130,7 @@ static std::vector<uint8_t> render(id<MTLDevice> device, MTLPixelFormat format, 
 template <typename Line>
 static int checkAgainstExpected(id<MTLDevice> device, Line line) {
     int failed = 0;
-    for (int f = 0; f < 5; ++f) {
+    for (int f = 0; f < kFormatCount; ++f) {
         NSString *error = nil;
         const std::vector<uint8_t> got = render(device, kFormats[f], &error);
         char text[200];

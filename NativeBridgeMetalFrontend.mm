@@ -421,6 +421,8 @@ static void endRenderServerAfterGpuLoss() {
 static uint32_t gFormats[8];static unsigned gFormatCount;static std::atomic<uint64_t> gTextureRefusals;
 // ASTC textures made (formats 186-218, which QuartzCore makes images of from their texture data on a device that is not virtual).
 static std::atomic<uint64_t> gAstcTextures;
+// BGR5A1Unorm textures made (43, which QuartzCore's create_surface_with_properties makes on an Apple2-family device that is not virtual).
+static std::atomic<uint64_t> gBgr5a1Textures;
 // Textures over IOSurfaces: made, refused, and how many of the requests named a planar surface.
 static std::atomic<uint64_t> gSurfaceTextures,gSurfaceRefusals,gSurfacePlanar,gSurfaceB3a8;
 static std::atomic<uint64_t> gSurfaceRotations[5];
@@ -476,6 +478,7 @@ static void refuseSurface(uint32_t step,IOSurfaceRef surface,MTLTextureDescripto
 }
 static void noteFormat(uint32_t format,bool made) {
  if(made && format>=186 && format<=218)gAstcTextures++;
+ if(made && format==43)gBgr5a1Textures++;
  std::lock_guard<std::mutex> lock(gProblemLock);
  if(!made)gTextureRefusals++;
  for(unsigned i=0;i<gFormatCount;i++)if(gFormats[i]==format)return;
@@ -1427,6 +1430,7 @@ static NBFunction *ciKernelFunction(NBLibrary *library,NSString *name) {
 }
 @interface NBComputePipeline : NBObject
 @property(nonatomic) NmbComputePipeline *handle;
+@property(nonatomic,copy) NSString *functionName;   // its kernel's name, for the report of a command buffer the GPU faulted in
 @end
 @implementation NBComputePipeline
 - (void)dealloc {nmb_compute_pipeline_release(_handle);}
@@ -1601,6 +1605,8 @@ static void dumpSurfacesOnce(NSSet *textures,NSSet *owners) {
  uint32_t createCpu,createTid,commitCpu,commitTid;
  BOOL earlyEligible;   // made by the render server's thread: its completed handlers may run at submission (see fireEarly)
  std::vector<WatchedSource> watched;
+ // The kernels its compute encoders set, first four distinct, named in the problem line when the GPU lost the command buffer.
+ NSString *__strong kernels[4];
 }
 @property(nonatomic) NmbCommandBuffer *handle;
 @property(nonatomic,strong) NBQueue *queue;
@@ -2018,6 +2024,10 @@ static void writeDrawStats() {
 - (MTLDispatchType)dispatchType {return MTLDispatchTypeSerial;}
 - (void)setComputePipelineState:(id<MTLComputePipelineState>)state {
  if(![(id)state isKindOfClass:[NBComputePipeline class]]){[self.commandBuffer refuse:@"foreign compute pipeline"];return;}
+ if(NSString *name=[(NBComputePipeline *)state functionName]) {
+  NBCommandBuffer *cb=self.commandBuffer;
+  for(int i=0;i<4;i++){if(!cb->kernels[i]){cb->kernels[i]=name;break;}if([cb->kernels[i] isEqualToString:name])break;}
+ }
  ENCODE([self check:nmb_compute_set_pipeline(self.handle,[(NBComputePipeline *)state handle]) what:"setComputePipelineState"]);
 }
 - (void)setBuffer:(id<MTLBuffer>)b offset:(NSUInteger)o atIndex:(NSUInteger)i {[self buffer:b offset:o index:i stage:0];}
@@ -2754,6 +2764,9 @@ static char kUserDictionaryKey;
  }
  // The runtime reports Vulkan's DeviceLost as Metal's code 11 (see -error).
  const bool lost=!self.failedLocally && nmb_command_buffer_metal_error_code(_handle)==11;
+ // The kernels of a command buffer the GPU lost (a fault restarts the GPU and fails the guilty job, NativeAdrenoPublish.cpp).
+ if(lost)noteProblem([NSString stringWithFormat:@"gpu lost: kernels %@ %@ %@ %@",kernels[0]?:@"-",kernels[1]?:@"-",kernels[2]?:@"-",
+                      kernels[3]?:@"-"]);
  void (^run)(void)=^{
   for(MTLCommandBufferHandler block in completedHandlers)block((id<MTLCommandBuffer>)self);
   dispatch_group_leave(self->_handlers);
@@ -3875,7 +3888,8 @@ static bool pipelineArchives(NSArray *list,std::vector<NmbBinaryArchive *> &arch
   NmbComputePipelineDescriptor p={};p.function=built.handle;p.max_call_stack_depth=1;
   *reflection=(MTLComputePipelineReflection *)computeReflection(&p);
  }
- NBComputePipeline *state=[NBComputePipeline new];state.handle=handle;gPipelines++;if(error)*error=nil;return (id<MTLComputePipelineState>)state;
+ NBComputePipeline *state=[NBComputePipeline new];state.handle=handle;state.functionName=built.name;gPipelines++;if(error)*error=nil;
+ return (id<MTLComputePipelineState>)state;
 }
 - (id<MTLComputePipelineState>)newComputePipelineStateWithDescriptor:(MTLComputePipelineDescriptor *)d options:(MTLPipelineOption)options
                                                        reflection:(MTLAutoreleasedComputePipelineReflection *)reflection error:(NSError **)error {
@@ -3899,7 +3913,7 @@ static bool pipelineArchives(NSArray *list,std::vector<NmbBinaryArchive *> &arch
   return failWith<id<MTLComputePipelineState>>(error,@"compute pipeline",nil);
  }
  if(reflection && wantsReflection(options))*reflection=(MTLComputePipelineReflection *)computeReflection(&p);
- NBComputePipeline *state=[NBComputePipeline new];state.handle=handle;state.label=d.label;gPipelines++;
+ NBComputePipeline *state=[NBComputePipeline new];state.handle=handle;state.label=d.label;state.functionName=d.computeFunction.name;gPipelines++;
  if(error)*error=nil;return (id<MTLComputePipelineState>)state;
 }
 // iPadOS 27's QuartzCore builds its backdrop compute pipelines (Liquid Glass luma, backdrop capture) with this short form: unanswered, the
@@ -4131,9 +4145,9 @@ extern "C" size_t native_bridge_metal_status(char *out,size_t size) {
 }
 
 static size_t native_bridge_metal_formats_locked(char *out,size_t size) {
- int n=snprintf(out,size,"tex x%llu s%llu/%llu p%llu b%llu a%llu f",(unsigned long long)gTextureRefusals.load(),(unsigned long long)gSurfaceTextures.load(),
+ int n=snprintf(out,size,"tex x%llu s%llu/%llu p%llu b%llu a%llu h%llu f",(unsigned long long)gTextureRefusals.load(),(unsigned long long)gSurfaceTextures.load(),
               (unsigned long long)gSurfaceRefusals.load(),(unsigned long long)gSurfacePlanar.load(),(unsigned long long)gSurfaceB3a8.load(),
-              (unsigned long long)gAstcTextures.load());
+              (unsigned long long)gAstcTextures.load(),(unsigned long long)gBgr5a1Textures.load());
  for(unsigned i=0;i<gFormatCount && n>0 && (size_t)n<size;i++)n+=snprintf(out+n,size-(size_t)n,"%u ",gFormats[i]);
  return n>0?(size_t)n:0;
 }
