@@ -187,7 +187,12 @@ static void runSelfTest(unsigned port, const char *turnip, const char *cache) {
     static bool done;
     if (done || !cache || !cache[0]) return;
     char gate[1024];
-    if (!requestedPath("NativeAdrenoMetal.selftest", gate, sizeof gate) || access(gate, R_OK) != 0) return;
+    if (!requestedPath("NativeAdrenoMetal.selftest", gate, sizeof gate)) return;
+    // fopen, not access: the plugin runs inside the client's sandbox, where access() is refused while
+    // an ordinary read of the same file is not (the clients list beside the bundle is read this way).
+    FILE *mark = fopen(gate, "r");
+    if (!mark) return;
+    fclose(mark);
     done = true;
     struct NmbSelftest result;
     memset(&result, 0, sizeof result);
