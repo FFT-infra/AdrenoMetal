@@ -23,6 +23,8 @@
 #include "CacheExport.h"
 #include "PrimeShaders.h"
 #include "ExceptionDiag.h"
+#include "XrTargetsCheck.h"
+#include <string>
 
 @interface _MTLDevice : NSObject
 @end
@@ -350,6 +352,29 @@ static id deviceForPort(unsigned port) {
                 } else
                     snprintf(note, sizeof note, "ca virtualized key ? flags %llx = %u", (unsigned long long)cf[1], virtualized);
                 native_bridge_metal_note(note);
+                // Apple's extended-range targets on this GPU (XrTargetsCheck.h), which QuartzCore draws through once its virtualized
+                // answer is 0: one line, "xr" then each format's "F:ok", its first wrong point "F:pN=got/want" or "F:refused".
+                @autoreleasepool {
+                    std::string line = "xr";
+                    std::string refusal;
+                    xrcheck::checkAgainstExpected(MTLCreateSystemDefaultDevice(), [&](const char *text) {
+                        unsigned long format = 0;
+                        sscanf(text, "xr %lu", &format);
+                        const char *rest = strchr(text + 3, ' ');
+                        char part[48];
+                        if (strstr(text, " refused")) {
+                            snprintf(part, sizeof part, " %lu:refused", format);
+                            if (refusal.empty()) refusal = text;
+                        } else if (rest && !strcmp(rest, " ok")) {
+                            snprintf(part, sizeof part, " %lu:ok", format);
+                        } else {
+                            snprintf(part, sizeof part, " %lu:%.26s", format, rest ? rest + 1 : "?");
+                        }
+                        line += part;
+                    });
+                    native_bridge_metal_note(line.c_str());
+                    if (!refusal.empty()) native_bridge_metal_note(refusal.c_str());
+                }
                 return nullptr;
             }, gpu) == 0)
                 pthread_detach(reader);
