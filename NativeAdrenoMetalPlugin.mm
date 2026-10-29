@@ -301,6 +301,7 @@ static id deviceForPort(unsigned port) {
         setenv("CA_DISPLAY_EDR_HEADROOM", "1", 1);
         setenv("CA_FP16_MIN_HEADROOM", "1e30", 1);
         setenv("CA_ALLOW_EDR_MIRRORING", "0", 1);
+        setenv("CA_DISABLE_BACKDROP_COMPUTE", "1", 1);
         if (void *start = dlsym(RTLD_DEFAULT, "CARenderServerStart")) {
             const uintptr_t slide = (uintptr_t)ptrauth_strip(start, ptrauth_key_function_pointer) - 0x1846dce88;
             const float one = 1.0f, never = 1e30f;
@@ -316,6 +317,13 @@ static id deviceForPort(unsigned port) {
             const int64_t onceDone = -1;
             gpu->mark(writeTask(0x1e701bdd9 + slide, &off, sizeof off) && writeTask(0x1e7020780 + slide, &onceDone, sizeof onceDone) &&
                       writeTask(0x1e701bdd9 + slide, &off, sizeof off) ? 0x6E04 : 0x6EF4);
+            // A device that is not virtual captures backdrops (the glass and blur materials) with compute
+            // (CA::OGL::MetalContext::capture_backdrop_surface_compute returns early on a virtual one). That path drew translucent light
+            // blue blocks over the screen here and the GPU faulted once (i321f915ca), so backdrops stay on the render-pass path the
+            // virtual device drew correctly: CA_DISABLE_BACKDROP_COMPUTE, QuartzCore's bool option 276 (_ca_debug_options + 276), read
+            // by CA::OGL::capture_backdrop.
+            const uint8_t on = 1;
+            gpu->mark(writeTask(0x1e702116c + 276 + slide, &on, sizeof on) ? 0x6E05 : 0x6EF5);
             // What framebuffer_pixel_format reads in the render server, once the desktop has started (other processes draw no
             // framebuffer): 0x6E20 | 1 headroom override 1, 2 threshold above 1, 4 CA_FORCE_FP16_FRAMEBUFFER (_ca_debug_options
             // 0x1e702116c + 128), 8 CA_ALLOW_EDR_MIRRORING (+ 156), 0x10 the device-is-virtualized byte (0x1e701bdd9).
