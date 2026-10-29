@@ -8,6 +8,7 @@
 // gets its own native device too (its own driver connection, GPU address space and shader cache), as every process does with Apple's
 // own GPU plugin.
 #import <Foundation/Foundation.h>
+#include "bridge/NativeMetalBridge.h"
 #include <pthread.h>
 #include <dlfcn.h>
 #if __has_feature(ptrauth_calls)
@@ -176,6 +177,27 @@ static void clientFailure(unsigned port, const char *step, const char *detail) {
         streamText(*gpu, text);
     }
 }
+// The known-image check of the generic GPU porting guide (docs/zh/porting/gpu step 4: render a known
+// image and check the result before the UI workload, and record the GPU result apart from what the
+// panel shows). The bridge's self-test draws and reads back three fixtures through the same device
+// path the clients use, so a wrong picture on the panel can be told apart from a GPU that computes
+// the wrong pixels. Once per process, and only when NativeAdrenoMetal.selftest sits beside the bundle.
+static void selftestMark(uint32_t) {}
+static void runSelfTest(unsigned port, const char *turnip, const char *cache) {
+    static bool done;
+    if (done || !cache || !cache[0]) return;
+    char gate[1024];
+    if (!requestedPath("NativeAdrenoMetal.selftest", gate, sizeof gate) || access(gate, R_OK) != 0) return;
+    done = true;
+    struct NmbSelftest result;
+    memset(&result, 0, sizeof result);
+    const uint32_t code = nmb_selftest(turnip, cache, nullptr, 0, selftestMark, &result);
+    char text[48];
+    // A failed step carries the bridge's own reason in result.message; the counts are wrong pixels.
+    if (code) snprintf(text, sizeof text, "st=%x %.34s", result.stage ? result.stage : code, result.message);
+    else snprintf(text, sizeof text, "ok c%b r%b i%b", result.compute_bad, result.render_bad, result.import_bad);
+    clientFailure(port, "selftest", text);
+}
 static id clientDevice(unsigned port) {
     char turnip[1024];
     if (!turnip::libraryPath(turnip, sizeof turnip) || access(turnip, R_OK) != 0) {clientFailure(port, "no-turnip", ""); return nil;}
@@ -192,6 +214,7 @@ static id clientDevice(unsigned port) {
     id device = nil;
     const char *lastError = "";
     unsigned usable = 0;
+    char usedCache[512] = "";
     for (unsigned i = 0; i < 2 && !device; ++i) {
         if (!candidates[i][0]) continue;
         strlcat(candidates[i], "m2v", sizeof candidates[i]);
@@ -205,6 +228,7 @@ static id clientDevice(unsigned port) {
             lastError = "exception";
         }
         if (!device && !lastError[0]) lastError = nmb_last_error();
+        if (device) strlcpy(usedCache, candidates[i], sizeof usedCache);
     }
     if (!device && !usable) {
         setenv("METAL2VULKAN_SHADER_CACHE_OPTIONAL", "1", 1);
@@ -226,6 +250,7 @@ static id clientDevice(unsigned port) {
         native_bridge_metal_problem_hook = [](const char *problem) {clientFailure(gClientPort, "problem", problem);};
         char problem[200] = {};
         if (native_bridge_metal_first_problem(problem, sizeof problem) && problem[0]) clientFailure(port, "problem", problem);
+        runSelfTest(port, turnip, usedCache);
     }
     return device;
 }
