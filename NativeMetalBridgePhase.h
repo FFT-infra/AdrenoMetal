@@ -33,15 +33,15 @@ struct Job {
 static Gpu *gGpu;
 static Job *gJob;
 static id gDevice;   // the frontend device of the checks, kept for the scanout stage
-static void mark(uint32_t value) {
+static inline void mark(uint32_t value) {
     if (gJob) gJob->last = value;
     if (gGpu) gGpu->mark(value);
 }
-static void missingSelector(const char *cls, const char *selector) {
+static inline void missingSelector(const char *cls, const char *selector) {
     if (gJob && !gJob->missing[0]) snprintf(gJob->missing, sizeof gJob->missing, "FM %.20s %.36s", cls, selector);
 }
 // The frontend checks on the native frontend over Turnip (QuartzCore is already translated by the self-test, so it is not repeated).
-static void frontend(Job *job) {
+static inline void frontend(Job *job) {
     mark(0x6600);
     id device = native_bridge_metal_open(job->turnip, job->cache, 0, missingSelector);
     // The runtime's reasons are per thread: keep this worker's for the report.
@@ -91,7 +91,7 @@ struct ScanoutContext {
     Gpu link;
     Gpu *marker;
 };
-static void serveScanout(Gpu &gpu, id device) {
+static inline void serveScanout(Gpu &gpu, id device) {
     // This thread carries every frame to the screen; at the default priority it waited behind the launching apps' threads.
     pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
     ScanoutContext context;
@@ -141,7 +141,7 @@ static void serveScanout(Gpu &gpu, id device) {
     }
     streamText7(gpu, line);
 }
-static void run(Gpu &gpu, const char *turnipPath) {
+static inline void run(Gpu &gpu, const char *turnipPath) {
     gpu.mark(0x6500);
     Job *job = new Job{};
     job->turnip = turnipPath;

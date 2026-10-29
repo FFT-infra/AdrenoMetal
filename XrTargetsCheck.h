@@ -35,19 +35,19 @@ static const uint32_t kExpected[5][4] = {{0x60409fff, 0xbf8040ff, 0x60409fff, 0x
                                          {0x60409fff, 0xbf7f40ff, 0x60409fff, 0xbf7f40ff}, {0x60409fff, 0xbf8040ff, 0x60409fff, 0xbf8040ff},
                                          {0x60409fff, 0xbf8040ff, 0x60409fff, 0xbf8040ff}};
 
-static uint32_t word(const std::vector<uint8_t> &bytes, int point) {
+static inline uint32_t word(const std::vector<uint8_t> &bytes, int point) {
     const size_t at = (kPoints[point][1] * kSize * 2 + kPoints[point][0]) * 4;
     return (uint32_t)bytes[at] << 24 | (uint32_t)bytes[at + 1] << 16 | (uint32_t)bytes[at + 2] << 8 | bytes[at + 3];
 }
 // The largest difference of one byte between two words.
-static int distance(uint32_t a, uint32_t b) {
+static inline int distance(uint32_t a, uint32_t b) {
     int worst = 0;
     for (int shift = 0; shift < 32; shift += 8) worst = std::max(worst, std::abs((int)((a >> shift) & 0xff) - (int)((b >> shift) & 0xff)));
     return worst;
 }
 
 // The BGRA8 bytes of the passes over `format` (empty, with *error, when a step was refused).
-static std::vector<uint8_t> render(id<MTLDevice> device, MTLPixelFormat format, NSString **error) {
+static inline std::vector<uint8_t> render(id<MTLDevice> device, MTLPixelFormat format, NSString **error) {
     NSError *e = nil;
     id<MTLLibrary> library = [device newLibraryWithSource:kShaders options:nil error:&e];
     if (!library) {*error = [NSString stringWithFormat:@"library: %@", e]; return {};}
@@ -125,7 +125,7 @@ static std::vector<uint8_t> render(id<MTLDevice> device, MTLPixelFormat format, 
 // Every format's passes against Metal's bytes, one short line each into `line(text)`: "xr F ok" or "xr F p0 got/want ..." or the
 // refusal. Returns how many formats differ or were refused.
 template <typename Line>
-static int checkAgainstExpected(id<MTLDevice> device, Line line) {
+static inline int checkAgainstExpected(id<MTLDevice> device, Line line) {
     int failed = 0;
     for (int f = 0; f < 5; ++f) {
         NSString *error = nil;

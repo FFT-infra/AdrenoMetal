@@ -30,7 +30,7 @@ namespace turnip {
 
 static char gFirstError[96];
 
-static VKAPI_ATTR VkBool32 VKAPI_CALL onMessage(VkDebugUtilsMessageSeverityFlagBitsEXT severity, VkDebugUtilsMessageTypeFlagsEXT,
+static inline VKAPI_ATTR VkBool32 VKAPI_CALL onMessage(VkDebugUtilsMessageSeverityFlagBitsEXT severity, VkDebugUtilsMessageTypeFlagsEXT,
                                                 const VkDebugUtilsMessengerCallbackDataEXT *data, void *) {
     if ((severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) && !gFirstError[0] && data && data->pMessage)
         snprintf(gFirstError, sizeof gFirstError, "%s", data->pMessage);
@@ -133,7 +133,7 @@ struct HostBuffer {
     }
 };
 
-static VkShaderModule shaderModule(Device &d, const uint32_t *words, size_t bytes) {
+static inline VkShaderModule shaderModule(Device &d, const uint32_t *words, size_t bytes) {
     VkShaderModuleCreateInfo ci = {VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
     ci.codeSize = bytes;
     ci.pCode = words;
@@ -141,7 +141,7 @@ static VkShaderModule shaderModule(Device &d, const uint32_t *words, size_t byte
     return d.vkCreateShaderModule(d.device, &ci, nullptr, &module) == VK_SUCCESS ? module : nullptr;
 }
 
-static void hostBarrier(Device &d, VkPipelineStageFlags from, VkAccessFlags access) {
+static inline void hostBarrier(Device &d, VkPipelineStageFlags from, VkAccessFlags access) {
     VkMemoryBarrier barrier = {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
     barrier.srcAccessMask = access;
     barrier.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
@@ -150,7 +150,7 @@ static void hostBarrier(Device &d, VkPipelineStageFlags from, VkAccessFlags acce
 
 // Fill: vkCmdFillBuffer of the first half of a 4 KiB buffer (Turnip implements it with its own internal blit). Returns verified words or < 0.
 template <typename Marker>
-static int fillTest(Device &d, Marker &mark, int &failStage, VkResult &failResult) {
+static inline int fillTest(Device &d, Marker &mark, int &failStage, VkResult &failResult) {
     constexpr VkDeviceSize kBytes = 4096;
     constexpr uint32_t kPattern = 0xc0ffee42u;
     HostBuffer b;
@@ -176,7 +176,7 @@ static int fillTest(Device &d, Marker &mark, int &failStage, VkResult &failResul
 
 // Compute: 16 workgroups of 64 invocations each write v[i] = i * 3 + 0x1000 (push constants) into a storage buffer.
 template <typename Marker>
-static int computeTest(Device &d, Marker &mark, int &stage) {
+static inline int computeTest(Device &d, Marker &mark, int &stage) {
     constexpr uint32_t kWords = 1024, kMul = 3, kAdd = 0x1000;
     mark(0x6100);
     HostBuffer b;
@@ -255,7 +255,7 @@ static int computeTest(Device &d, Marker &mark, int &stage) {
 // Render: a 64x64 RGBA8 colour attachment cleared to blue, one triangle drawn in orange (push constant), copied to a host buffer.
 // The triangle covers 512 pixels in exact arithmetic; every other pixel must keep the clear colour.
 template <typename Marker>
-static void renderTest(Device &d, Marker &mark, int &stage, int &triangle, int &other) {
+static inline void renderTest(Device &d, Marker &mark, int &stage, int &triangle, int &other) {
     constexpr uint32_t kSize = 64;
     mark(0x6200);
     HostBuffer b;
@@ -419,7 +419,7 @@ static void renderTest(Device &d, Marker &mark, int &stage, int &triangle, int &
 }
 
 template <typename Marker>
-static Result run(Marker &&mark, const char *libraryPath) {
+static inline Result run(Marker &&mark, const char *libraryPath) {
     Result out;
     auto fail = [&](int stage, int result) {
         out.stage = stage;
@@ -563,7 +563,7 @@ static void *watchedWorker(void *argument) {
     return nullptr;
 }
 
-static size_t frameText(char *out, size_t size, uint64_t address) {
+static inline size_t frameText(char *out, size_t size, uint64_t address) {
     Dl_info info = {};
     if (!address || !dladdr(reinterpret_cast<const void *>(address), &info) || !info.dli_fbase)
         return (size_t)snprintf(out, size, " ?%llx", (unsigned long long)address);
@@ -573,7 +573,7 @@ static size_t frameText(char *out, size_t size, uint64_t address) {
     return (size_t)snprintf(out, size, " %c%llx", tag, (unsigned long long)(address - reinterpret_cast<uint64_t>(info.dli_fbase)));
 }
 
-static void sample(Watched &w, pthread_t worker, char *text, size_t size) {
+static inline void sample(Watched &w, pthread_t worker, char *text, size_t size) {
     const mach_port_t thread = pthread_mach_thread_np(worker);
     thread_basic_info_data_t a = {}, b = {};
     mach_msg_type_number_t count = THREAD_BASIC_INFO_COUNT;
@@ -609,7 +609,7 @@ static void sample(Watched &w, pthread_t worker, char *text, size_t size) {
 }
 
 template <typename Marker, typename Reporter>
-static Result runWatched(Marker &mark, Reporter &&report, const char *libraryPath) {
+static inline Result runWatched(Marker &mark, Reporter &&report, const char *libraryPath) {
     Watched *w = new Watched{};
     w->libraryPath = libraryPath;
     w->markContext = &mark;
@@ -639,7 +639,7 @@ static Result runWatched(Marker &mark, Reporter &&report, const char *libraryPat
 }
 
 // Path of libvulkan_freedreno.dylib: next to the image this code is part of (the plugin binary inside the bundle).
-static bool libraryPath(char *path, size_t size) {
+static inline bool libraryPath(char *path, size_t size) {
     Dl_info info = {};
     if (!dladdr(reinterpret_cast<const void *>(&libraryPath), &info) || !info.dli_fname) return false;
     snprintf(path, size, "%s", info.dli_fname);

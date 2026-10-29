@@ -184,7 +184,7 @@ int runTest(Gpu &gpu, uint32_t mapFlags, int &step, int &error) {
 // Two threads of one process may report (the published mode's status monitor and the scanout client): the driver keeps one text cursor, so a line
 // goes out whole.
 static pthread_mutex_t gStreamLock = PTHREAD_MUTEX_INITIALIZER;
-static void streamText(Gpu &gpu, const char *text) {
+static inline void streamText(Gpu &gpu, const char *text) {
     pthread_mutex_lock(&gStreamLock);
     gpu.mark(0x7fff);
     for (unsigned i = 0; i < 63 && text[i]; ++i) gpu.mark(0x7000 | (uint8_t)text[i]);
@@ -212,7 +212,7 @@ struct ProbeBo {
     uint32_t token = 0;
     volatile uint32_t *words = nullptr;
 };
-static int probeAlloc(Gpu &gpu, ProbeBo &b, uint32_t fill) {
+static inline int probeAlloc(Gpu &gpu, ProbeBo &b, uint32_t fill) {
     NativeAdrenoAbiBoAlloc alloc = {4096, 12, 0};
     NativeAdrenoAbiBoAllocReply reply = {};
     if (int e = gpu.method(NativeAdrenoMethodBoAlloc, &alloc, sizeof alloc, &reply, sizeof reply)) return e;
@@ -229,12 +229,12 @@ static int probeAlloc(Gpu &gpu, ProbeBo &b, uint32_t fill) {
     __asm__ volatile("dsb sy" ::: "memory");
     return 0;
 }
-static int probeMap(Gpu &gpu, const ProbeBo &b, uint64_t iova) {
+static inline int probeMap(Gpu &gpu, const ProbeBo &b, uint64_t iova) {
     NativeAdrenoAbiBoMap map = {b.handle, iova, 3, 0, 2, 0};
     NativeAdrenoAbiBoMapReply mr = {};
     return gpu.method(NativeAdrenoMethodBoMap, &map, sizeof map, &mr, sizeof mr);
 }
-static void probeFree(Gpu &gpu, ProbeBo &b) {
+static inline void probeFree(Gpu &gpu, ProbeBo &b) {
     if (!b.handle) return;
     if (b.address) {
         gpu.unmap(gpu.conn, b.token, mach_task_self(), b.address);
@@ -326,7 +326,7 @@ struct Replay {
 };
 // Allocates and maps every recorded buffer and fills it through a CPU mapping with the given flags: 0x101 (Device, aligned volatile
 // stores, as the prefix replay always did) or 0x401 (write combine filled with memcpy/memset, as Turnip fills its BOs).
-static int replayLoad(Gpu &gpu, Replay &r, uint32_t mapFlags) {
+static inline int replayLoad(Gpu &gpu, Replay &r, uint32_t mapFlags) {
     using namespace turnipreplay;
     for (unsigned i = 0; i < Replay::kCount; ++i) {
         const Buffer &b = kBuffers[i];
@@ -359,7 +359,7 @@ static int replayLoad(Gpu &gpu, Replay &r, uint32_t mapFlags) {
     return r.ibIndex == Replay::kCount ? 0xbad4 : 0;
 }
 // Submits the first dwords of the IB and waits up to 2 s; a timeout leaves the buffers referenced by the stuck CP.
-static int replayRun(Gpu &gpu, Replay &r, uint32_t dwords) {
+static inline int replayRun(Gpu &gpu, Replay &r, uint32_t dwords) {
     NativeAdrenoAbiSubmit submit = {};
     submit.buffer_count = 1;
     submit.buffers[0] = {r.handles[r.ibIndex], turnipreplay::kIbIova, uint64_t(dwords) * 4};
@@ -374,13 +374,13 @@ static int replayRun(Gpu &gpu, Replay &r, uint32_t dwords) {
     return waited;
 }
 // A stuck CP still references the buffers; they are only released when everything retired.
-static void replayFree(Gpu &gpu, Replay &r) {
+static inline void replayFree(Gpu &gpu, Replay &r) {
     if (r.hung) return;
     for (uint64_t &h : r.handles)
         if (h) {NativeAdrenoAbiBoFree f = {h}; gpu.method(NativeAdrenoMethodBoFree, &f, sizeof f, nullptr, 0); h = 0;}
 }
 // One whole-IB control run on fresh buffers at the same GPU addresses: '1' retired, '0' stuck, 'x' setup failed. Marker 0x6c00 | tag.
-static char replayControl(Gpu &gpu, uint32_t mapFlags, uint32_t tag, bool &hung) {
+static inline char replayControl(Gpu &gpu, uint32_t mapFlags, uint32_t tag, bool &hung) {
     Replay r;
     gpu.mark(0x6c00 | tag);
     char result = 'x';
@@ -454,7 +454,7 @@ __attribute__((unused)) static bool earlyRuns(Gpu &gpu) {
 // earlier runs cannot help it; the first prefix that stops names the packet that needs that memory. When every prefix retires, CP state
 // left by the earlier runs is what helped, and the whole IB then runs once more on fresh buffers (e<result>). Reported on GPU7 as
 // "F <retired>/<prefixes> o<opcode ending the stuck prefix> c<its dwords> e<whole run: 1, 0 stuck, - not run>".
-static bool freshScan(Gpu &gpu) {
+static inline bool freshScan(Gpu &gpu) {
     using namespace turnipreplay;
     constexpr unsigned kPrefixes = sizeof kCuts / sizeof kCuts[0];
     unsigned retired = 0;
@@ -483,7 +483,7 @@ static bool freshScan(Gpu &gpu) {
     streamText7(gpu, text);
     return !stuck && whole == '1';
 }
-static bool replayPhase(Gpu &gpu) {
+static inline bool replayPhase(Gpu &gpu) {
     using namespace turnipreplay;
     constexpr unsigned kPrefixes = sizeof kCuts / sizeof kCuts[0];
     Replay r;
@@ -532,7 +532,7 @@ static bool replayPhase(Gpu &gpu) {
 }
 // N: the whole IB on a second connection, whose first submission carries the A7XX context entry again (Turnip's connection does that
 // after the replay). Returns false when the CP stopped.
-static bool replaySecondClient(Gpu &gpu) {
+static inline bool replaySecondClient(Gpu &gpu) {
     unsigned conn = 0;
     if (gpu.openFn(gpu.port, mach_task_self(), 0x4147, &conn) != 0 || !conn) {gReplayControls[2] = 'o'; return true;}
     const unsigned first = gpu.conn;
@@ -556,7 +556,7 @@ static bool replaySecondClient(Gpu &gpu) {
 static void (*gAfterTurnip)(Gpu &gpu, const char *turnipPath);
 
 // Turnip phase: only where libvulkan_freedreno.dylib sits next to this code (the plugin bundle), never in the probe daemon.
-static void turnipPhase(Gpu &gpu) {
+static inline void turnipPhase(Gpu &gpu) {
     char path[1024];
     if (!turnip::libraryPath(path, sizeof path) || access(path, R_OK) != 0) return;
     gpu.mark(0x6000);
@@ -572,7 +572,7 @@ static void turnipPhase(Gpu &gpu) {
 }
 
 // Returns the GPU-verified dword count of the uncached run, or a negative number; every outcome is also reported to the kernel.
-static int adrenoUserTest(unsigned port, const char *process) {
+static inline int adrenoUserTest(unsigned port, const char *process) {
     void *iokit = dlopen("/System/Library/Frameworks/IOKit.framework/IOKit", RTLD_NOW | RTLD_LOCAL);
     if (!iokit) return -1;
     auto open = (IOServiceOpenFn)dlsym(iokit, "IOServiceOpen");

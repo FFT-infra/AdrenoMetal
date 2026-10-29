@@ -41,15 +41,15 @@ constexpr uint64_t kPackLimit = 1ull << 30;
 // with the earlier ones, so a boot sends only what it compiled itself (int-148: the whole directory outgrew the export area once the UI's
 // own variants were added, and the export refused the build, marker 0x69f2).
 static std::set<std::string> &baked() {static std::set<std::string> files; return files;}
-static std::string bakedKey(const std::string &path, uint64_t size) {return path + '\n' + std::to_string(size);}
-static void dropBaked(std::vector<File> &files) {
+static inline std::string bakedKey(const std::string &path, uint64_t size) {return path + '\n' + std::to_string(size);}
+static inline void dropBaked(std::vector<File> &files) {
     if (baked().empty()) return;
     std::vector<File> fresh;
     for (File &f : files) if (!baked().count(bakedKey(f.path, (uint64_t)f.st.st_size))) fresh.push_back(std::move(f));
     files.swap(fresh);
 }
 
-static void scan(const std::string &root, const std::string &relative, std::vector<File> &out, unsigned depth) {
+static inline void scan(const std::string &root, const std::string &relative, std::vector<File> &out, unsigned depth) {
     if (depth > 8) return;
     DIR *dir = opendir((root + "/" + relative).c_str());
     if (!dir) return;
@@ -65,7 +65,7 @@ static void scan(const std::string &root, const std::string &relative, std::vect
 }
 
 // Count, bytes and newest modification of the directory: equal on two scans = nothing is being written.
-static uint64_t signature(const std::vector<File> &files) {
+static inline uint64_t signature(const std::vector<File> &files) {
     uint64_t s = files.size() * 0x9e3779b97f4a7c15ull;
     for (const File &f : files) s = s * 31 + (uint64_t)f.st.st_size * 1000003 + (uint64_t)f.st.st_mtimespec.tv_sec * 7 + (uint64_t)f.st.st_mtimespec.tv_nsec;
     return s;
@@ -74,7 +74,7 @@ static uint64_t signature(const std::vector<File> &files) {
 template <typename T> static void put(std::vector<uint8_t> &b, T v) {const uint8_t *p = (const uint8_t *)&v; b.insert(b.end(), p, p + sizeof v);}
 
 // The stream's length for these files, from their sizes as scanned.
-static uint64_t streamBytes(const std::string &root, const std::vector<File> &files) {
+static inline uint64_t streamBytes(const std::string &root, const std::vector<File> &files) {
     uint64_t n = 8 + 4 + root.size() + 4;
     for (const File &f : files) n += 24 + f.path.size() + (uint64_t)f.st.st_size;
     return n;
@@ -117,7 +117,7 @@ template <typename Emit> static bool stream(const std::string &root, const std::
 #ifdef CACHEEXPORT_FORMAT_ONLY
 // The image pack format (SHEXP001, compressed), for the host check; scripts/add-gpu-plugin-data.py builds the same. False when a file
 // vanished or zlib is missing.
-static bool build(const std::string &root, const std::vector<File> &files, std::vector<uint8_t> &out) {
+static inline bool build(const std::string &root, const std::vector<File> &files, std::vector<uint8_t> &out) {
     using BoundFn = unsigned long (*)(unsigned long);
     using CompressFn = int (*)(uint8_t *, unsigned long *, const uint8_t *, unsigned long, int);
     static void *z = dlopen("/usr/lib/libz.1.dylib", RTLD_NOW | RTLD_LOCAL);
@@ -215,14 +215,14 @@ struct PackReader {
 // scripts/add-gpu-plugin-data.py --pipeline-pack). Its files go into this process's own cache directory, so they carry this process's owner
 // and mode; a file that is already there with the same size is kept. Files are written beside their place and renamed only once the
 // whole pack has been read and checked: a damaged pack imports nothing. Returns the number of files written, or -1.
-static int importStream(PackReader &r, const std::string &directory);
-static int importPack(const char *pack, const std::string &directory) {
+static inline int importStream(PackReader &r, const std::string &directory);
+static inline int importPack(const char *pack, const std::string &directory) {
     if (access(pack, R_OK) != 0) return 0;
     PackReader r;
     if (!r.start(pack)) return -1;
     return importStream(r, directory);
 }
-static int importStream(PackReader &r, const std::string &directory) {
+static inline int importStream(PackReader &r, const std::string &directory) {
     std::vector<std::string> written;
     auto fail = [&]() {for (const std::string &f : written) unlink((f + ".import").c_str()); return -1;};
     char magic[8];
@@ -267,7 +267,7 @@ static int importStream(PackReader &r, const std::string &directory) {
 #ifndef CACHEEXPORT_FORMAT_ONLY
 // Markers 0x69xx: 00 started, 01 connection, 02 an export went out (then 0x6Bnn: its size in MiB, saturated), f0 no connection,
 // f1 no selector, f2 a file changed or vanished while it was read, f3 a piece refused, f4 the new files exceed one export.
-static void run(Gpu &marker, std::string root) {
+static inline void run(Gpu &marker, std::string root) {
     while (root.size() > 1 && root.back() == '/') root.pop_back();
     marker.mark(0x6900);
     Gpu link;

@@ -300,7 +300,7 @@ static const Case kCases[4] = {{(MTLPixelFormat)204, 4, kAstc4Blocks, kAstc4LdrB
                                {(MTLPixelFormat)212, 8, kAstc8Blocks, kAstc8LdrBgra}, {(MTLPixelFormat)194, 8, kAstc8Blocks, kAstc8SrgbBgra}};
 
 // The BGRA8 bytes the device reads from the case's texture (empty, with *error, when a step was refused).
-static std::vector<uint8_t> render(id<MTLDevice> device, const Case &k, NSString **error) {
+static inline std::vector<uint8_t> render(id<MTLDevice> device, const Case &k, NSString **error) {
     NSError *e = nil;
     id<MTLLibrary> library = [device newLibraryWithSource:@"#include <metal_stdlib>\nusing namespace metal;\n"
         "vertex float4 astc_vs(uint i [[vertex_id]]) {const float2 p[3] = {float2(-1, -1), float2(3, -1), float2(-1, 3)}; return float4(p[i], 0, 1);}\n"
@@ -343,7 +343,7 @@ static std::vector<uint8_t> render(id<MTLDevice> device, const Case &k, NSString
 // Every case against Metal's bytes, one short part each into `part(text)`: "F:ok", "F:N wrong (x,y) got/want" or "F:refused ...".
 // Returns how many cases differ or were refused.
 template <typename Part>
-static int check(id<MTLDevice> device, Part part) {
+static inline int check(id<MTLDevice> device, Part part) {
     int failed = 0;
     for (const Case &k : kCases) {
         NSString *error = nil;

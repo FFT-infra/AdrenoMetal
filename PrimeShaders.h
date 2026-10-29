@@ -40,7 +40,7 @@ extern "C" void native_bridge_metal_quiet_problems(bool);
 namespace prime {
 static const char *const kRoots[] = {"/System/Library", "/Applications", "/System/Cryptexes/OS/System/Library"};
 
-static std::set<std::string> readLines(const std::string &path) {
+static inline std::set<std::string> readLines(const std::string &path) {
     std::set<std::string> lines;
     if (FILE *f = fopen(path.c_str(), "r")) {
         char line[1024];
@@ -54,7 +54,7 @@ static std::set<std::string> readLines(const std::string &path) {
 }
 // The same list carried in this executable's __DATA,__primelist section (build-adreno-metal-plugin.py), for a render server whose sandbox
 // refuses to read the file beside the bundle.
-static std::set<std::string> embeddedLines() {
+static inline std::set<std::string> embeddedLines() {
     std::set<std::string> lines;
     Dl_info info = {};
     if (!dladdr(reinterpret_cast<const void *>(&embeddedLines), &info) || !info.dli_fbase) return lines;
@@ -70,20 +70,20 @@ static std::set<std::string> embeddedLines() {
     }
     return lines;
 }
-static void appendLine(const std::string &path, const std::string &line) {
+static inline void appendLine(const std::string &path, const std::string &line) {
     if (FILE *f = fopen(path.c_str(), "a")) {fprintf(f, "%s\n", line.c_str()); fclose(f);}
 }
-static void writeCurrent(const std::string &path, const std::string &line) {
+static inline void writeCurrent(const std::string &path, const std::string &line) {
     if (FILE *f = fopen(path.c_str(), "w")) {fprintf(f, "%s\n", line.c_str()); fflush(f); fsync(fileno(f)); fclose(f);}
 }
-static uint64_t nowMs() {return clock_gettime_nsec_np(CLOCK_UPTIME_RAW) / 1000000;}
+static inline uint64_t nowMs() {return clock_gettime_nsec_np(CLOCK_UPTIME_RAW) / 1000000;}
 
 // The libraries: first the paths of the list file beside the bundle (NativeAdrenoMetal.primelist, every .metallib of the OS image, one
 // absolute path per line), because the render server's sandbox refuses to list most directories (a scan alone found 8 of 166). Only
 // without a list does the scan run: it walks every directory it can reach and held a core for 8 s with frames stalling (i557u, 120 s
 // into the boot). A path is taken once, by its file identity.
 // `note` gets the list's outcome: its path, the lines read, the libraries kept and the stat failures with the last errno.
-static std::vector<std::string> libraries(const std::string &listPath, std::string &note) {
+static inline std::vector<std::string> libraries(const std::string &listPath, std::string &note) {
     std::vector<std::string> found;
     std::set<std::pair<dev_t, ino_t>> seen;
     unsigned lines = 0, failed = 0;
@@ -122,7 +122,7 @@ static std::vector<std::string> libraries(const std::string &listPath, std::stri
 // it (int-250: 12 per 250 ms, 460 pipelines made during the swipes at a 48 ms median). With a fixed 120 Hz vsync the idle desktop draws 6
 // per 250 ms (i516), so the bar is 8: still under any animation, which draws 15 to 30. A desktop that never drops under it still gets one
 // pipeline every 10 s (i513-i515: priming sat at 15/162 for the whole run without making a pipeline). Returns the milliseconds it waited.
-static uint64_t waitForQuiet() {
+static inline uint64_t waitForQuiet() {
     const uint64_t began = nowMs();
     uint64_t quietSince = 0;
     bool busy = false;
@@ -144,7 +144,7 @@ static uint64_t waitForQuiet() {
 extern "C" const char *nmb_runtime_build(void);
 
 // The LC_UUID of the loaded image whose path ends in `suffix`, "unknown" without one.
-static std::string imageUuid(const char *suffix) {
+static inline std::string imageUuid(const char *suffix) {
     for (uint32_t index = 0; index < _dyld_image_count(); ++index) {
         const char *name = _dyld_get_image_name(index);
         const size_t length = strlen(name), want = strlen(suffix);
@@ -170,13 +170,13 @@ static std::string imageUuid(const char *suffix) {
 // cache (int-246: after a runtime change the Vulkan cache had 0 hits and 214 misses, while prime-done still listed every library), and
 // Turnip's build, which keys its pipeline cache (int-249: 4099 misses after a Turnip rebuild). A change of either primes every library
 // again; a plugin rebuild alone keeps what was finished.
-static std::string buildId() {
+static inline std::string buildId() {
     return std::string(nmb_runtime_build()) + "-" + imageUuid("/libvulkan_freedreno.dylib");
 }
 
 // A kernel that calls visible functions it does not define (`NeedsInput(LinkedFunction { symbol: "..." })`): link the library's function of
 // each symbol the refusals name and make the pipeline again, until it is made or a symbol names no function of the library.
-static bool linkedKernel(id<MTLDevice> device, id<MTLLibrary> lib, id<MTLFunction> kernel, NSError **error) {
+static inline bool linkedKernel(id<MTLDevice> device, id<MTLLibrary> lib, id<MTLFunction> kernel, NSError **error) {
     NSMutableArray<id<MTLFunction>> *linked = [NSMutableArray array];
     NSMutableSet<NSString *> *symbols = [NSMutableSet set];
     for (unsigned round = 0; round < 16; ++round) {
@@ -204,7 +204,7 @@ static bool linkedKernel(id<MTLDevice> device, id<MTLLibrary> lib, id<MTLFunctio
 }
 
 // One library: every function it names, in its order; returns the log line.
-static std::string library(id<MTLDevice> device, const std::string &path, const std::string &current, const std::set<std::string> &bad) {
+static inline std::string library(id<MTLDevice> device, const std::string &path, const std::string &current, const std::set<std::string> &bad) {
     unsigned kernels = 0, renders = 0, made = 0, refused = 0, skipped = 0, zeroed = 0, linkedMade = 0;
     uint64_t waited = 0;
     std::string firstRefusal;   // the first refused function and why, so the log tells translator gaps from unspecialized constants
@@ -290,7 +290,7 @@ static std::string library(id<MTLDevice> device, const std::string &path, const 
 }
 
 // The thread: waits for the desktop to settle, then works through the libraries not finished yet.
-static void run(id<MTLDevice> device, std::string root, unsigned delaySeconds, const std::string &listPath) {
+static inline void run(id<MTLDevice> device, std::string root, unsigned delaySeconds, const std::string &listPath) {
     pthread_set_qos_class_self_np(QOS_CLASS_BACKGROUND, 0);
     native_bridge_metal_quiet_problems(true);
     while (root.size() > 1 && root.back() == '/') root.pop_back();

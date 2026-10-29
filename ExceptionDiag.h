@@ -15,7 +15,7 @@ namespace exceptiondiag {
 static NSUncaughtExceptionHandler *gPrevious;
 static char *gText;   // kept referenced: the text must stay in the heap until the process is gone
 
-static void handler(NSException *exception) {
+static inline void handler(NSException *exception) {
     @autoreleasepool {
         NSMutableString *text = [NSMutableString stringWithFormat:@"SHENGTHROW %@ | ", exception.name];
         NSString *reason = exception.reason ?: @"";
@@ -29,7 +29,7 @@ static void handler(NSException *exception) {
     if (gPrevious) gPrevious(exception);
 }
 // Every process that loads the plugin, once: the handler is installed in front of whatever the process already had.
-static void start() {
+static inline void start() {
     static bool started;
     if (started) return;
     started = true;
