@@ -308,13 +308,19 @@ static id deviceForPort(unsigned port) {
             gpu->mark(writeTask(0x1e7021104 + slide, &never, sizeof never) ? 0x6E02 : 0x6EF2);
             const uint8_t off = 0;
             gpu->mark(writeTask(0x1e702116c + 156 + slide, &off, sizeof off) ? 0x6E03 : 0x6EF3);
+            // CADeviceIsVirtualized: framebuffer_pixel_format takes RGhA on a virtual device. QuartzCore asks MobileGestalt's
+            // IsVirtualDevice once (sub_184541f10 stores the answer at 0x1e701bdd9, its dispatch_once token at 0x1e7020780) and the
+            // answer is the board's vmm-present (i623fa0abd read IsVirtualDevice = 1). The board keeps vmm-present for AMFI, and
+            // telling every process the tablet is real hardware crashed backboardd on its first start three times (i1d2e5eab6), so
+            // only QuartzCore's answer is held at 0: the stored byte, then the token marked done, so the query never runs.
+            const int64_t onceDone = -1;
+            gpu->mark(writeTask(0x1e701bdd9 + slide, &off, sizeof off) && writeTask(0x1e7020780 + slide, &onceDone, sizeof onceDone) &&
+                      writeTask(0x1e701bdd9 + slide, &off, sizeof off) ? 0x6E04 : 0x6EF4);
             // What framebuffer_pixel_format reads in the render server, once the desktop has started (other processes draw no
             // framebuffer): 0x6E20 | 1 headroom override 1, 2 threshold above 1, 4 CA_FORCE_FP16_FRAMEBUFFER (_ca_debug_options
             // 0x1e702116c + 128), 8 CA_ALLOW_EDR_MIRRORING (+ 156), 0x10 the device-is-virtualized byte (0x1e701bdd9).
-            // i35abaf83 read 0x6E23 and the framebuffer stayed RGhA (48388K swap surfaces, 8 bytes a pixel). The function has two more
-            // ways to RGhA: the display's own flag (+0x6840 of the display) and, when no compression format was picked, the virtualized
-            // byte, which sub_184541f10 stores once from a call with the constant CFString at 0x1e9021680; the string's text is noted
-            // ("ca virtualized key ...") so the answer behind it can be found.
+            // i35abaf83 read 0x6E23 and the framebuffer stayed RGhA (48388K swap surfaces, 8 bytes a pixel): the virtualized byte,
+            // set from the MobileGestalt key in the constant CFString at 0x1e9021680, noted as "ca virtualized key ..." (above).
             static uintptr_t gSlide;
             gSlide = slide;
             pthread_t reader;
