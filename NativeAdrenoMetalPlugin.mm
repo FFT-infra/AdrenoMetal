@@ -192,7 +192,7 @@ static void runSelfTest(unsigned port, const char *turnip, const char *cache) {
     char text[48];
     // A failed step carries the bridge's own reason in result.message; the counts are wrong pixels.
     if (code) snprintf(text, sizeof text, "st=%x %.34s", result.stage ? result.stage : code, result.message);
-    else snprintf(text, sizeof text, "ok c%b r%b i%b", result.compute_bad, result.render_bad, result.import_bad);
+    else snprintf(text, sizeof text, "ok cb=%u rb=%u ib=%u", result.compute_bad, result.render_bad, result.import_bad);
     clientFailure(port, "selftest", text);
 }
 static id clientDevice(unsigned port) {
