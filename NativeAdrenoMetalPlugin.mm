@@ -77,6 +77,7 @@ static std::string gCacheDirectory;   // the runtime's cache directory (the one 
 static unsigned gDiagBits;
 // Reads of the render server's own state for the framebuffer-format question (diagnostic only, for the exact QuartzCore of the target image; a read
 // that fails or a build that differs reports zeros). Each value is one marker, 0x7Kvv: K picks the item, vv the value.
+#if defined(__arm64e__)
 static bool readTask(uintptr_t address, void *out, size_t size) {
     vm_size_t got = 0;
     return vm_read_overwrite(mach_task_self(), address, size, (vm_address_t) out, &got) == KERN_SUCCESS && got == size;
@@ -84,6 +85,7 @@ static bool readTask(uintptr_t address, void *out, size_t size) {
 static bool writeTask(uintptr_t address, const void *data, size_t size) {
     return vm_write(mach_task_self(), address, (vm_offset_t) data, (mach_msg_type_number_t) size) == KERN_SUCCESS;
 }
+#endif
 // EXPERIMENT (second report onward): this display path takes plain 8-bit BGRA only, so tell the render server's display that it has neither the deep
 // (10-bit) framebuffer nor universal buffer compression. Whether the state it reads those from is the whole story is what the markers show.
 // EXPERIMENT (boot-arg sheng-fb-bgra=1): the render server's framebuffer format with every other virtualized answer left as it is.
@@ -96,6 +98,7 @@ static bool bootArgSet(const char *key) {
     size_t size = sizeof args - 1;
     return sysctlbyname("kern.bootargs", args, &size, nullptr, 0) == 0 && strstr(args, key);
 }
+#if defined(__arm64e__)
 static unsigned patchFramebufferBranch(uintptr_t slide) {
     const uintptr_t site = 0x184461928 + slide;
     uint32_t word = 0;
@@ -112,6 +115,7 @@ static unsigned patchFramebufferBranch(uintptr_t slide) {
     if (!restored) return 0x6E53;
     return 0x6E42;
 }
+#endif
 // Every process other than the render server: the same runtime on its own connection, with none of the render server's threads (no
 // display hand-off, telemetry, benchmark or cache export). Its shader cache lives in its own cache or temp directory.
 // The reason a client's device failed, as a text line the driver keeps per process (the render server's report row is rewritten every ten seconds):
