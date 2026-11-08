@@ -1858,6 +1858,11 @@ static bool freezeWallpaperOn() {
 static std::recursive_mutex gWallpaperLock;
 static uint64_t gWallpaperFrozenCommand,gWallpaperFrozenAt,gWallpaperAllowed,gWallpaperParked;
 static NBTexture *gWallpaperFrozenOutput;
+// The largest surface a command buffer of a Poster renderer ever stored, and whether that was reported yet: the
+// freeze below only names a store of two million pixels or more, and a poster that never reaches that size would
+// otherwise leave the same silence as a poster that never ran. Reported once, on the client's text row.
+static std::atomic<uint64_t> gWallpaperMaxArea{0};
+static std::atomic<bool> gWallpaperReported{false};
 struct SingleSampleCopy {
  NmbTexture *source,*destination;
  uint64_t sourceLevel,sourceSlice,destinationLevel,destinationSlice;
@@ -3029,6 +3034,10 @@ static char kUserDictionaryKey;
   }
   if(freezeWallpaperOn() && attachmentIndex<8) {
    auto output=[&](NBTexture *written) {
+    if(written.surface) {
+     const uint64_t area=(uint64_t)written.width*(uint64_t)written.height;
+     if(area>gWallpaperMaxArea)gWallpaperMaxArea=area;
+    }
     if(written.surface && written.width*written.height>=2000000 &&
        (!self.wallpaperOutput || written.width*written.height>self.wallpaperOutput.width*self.wallpaperOutput.height))
      self.wallpaperOutput=written;
@@ -3107,12 +3116,16 @@ static char kUserDictionaryKey;
  const uint64_t flushed=flushSurfaces(_surfaces);
  frontStage(traceNumber,self.commitIndex,9,flushed,(uint32_t)_surfaces.count);
  if(freezeWallpaperOn() && !self.failedLocally && self.status==MTLCommandBufferStatusCompleted &&
+    encodedWork.draws && !gWallpaperReported.exchange(true))
+  NBLOG(@"wallpaper draw cmd %llu draws %u max %llu px",(unsigned long long)traceNumber,encodedWork.draws,
+        (unsigned long long)gWallpaperMaxArea.load());
+ if(freezeWallpaperOn() && !self.failedLocally && self.status==MTLCommandBufferStatusCompleted &&
     self.wallpaperOutput && encodedWork.draws) {
   std::lock_guard<std::recursive_mutex> guard(gWallpaperLock);
   if(!gWallpaperFrozenCommand) {
    gWallpaperFrozenOutput=self.wallpaperOutput;gWallpaperFrozenCommand=traceNumber;gWallpaperFrozenAt=nowUs();
-   GLOG(@"native-metal: wallpaper frozen after completed command %llu surface %u; later GPU commits remain pending",
-        (unsigned long long)traceNumber,IOSurfaceGetID(gWallpaperFrozenOutput.surface));
+   NBLOG(@"wallpaper froze cmd %llu surface %u",(unsigned long long)traceNumber,
+         gWallpaperFrozenOutput.surface?IOSurfaceGetID(gWallpaperFrozenOutput.surface):0u);
   }
  }
  // Actual GPU completion (or a local refusal that never submitted) is the

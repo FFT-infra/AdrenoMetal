@@ -232,6 +232,10 @@ static id clientDevice(unsigned port) {
         native_bridge_metal_problem_hook = [](const char *problem) {clientFailure(gClientPort, "problem", problem);};
         char problem[200] = {};
         if (native_bridge_metal_first_problem(problem, sizeof problem) && problem[0]) clientFailure(port, "problem", problem);
+        // A process that gets a device says so, with the candidates it tried: the failure rows name only the processes
+        // that did not, and "did this one get a device, and which cache directory served it" was the question the
+        // wallpaper's renderers left open.
+        else clientFailure(port, "device-ok", trace);
     }
     return device;
 }
