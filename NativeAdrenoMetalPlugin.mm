@@ -172,12 +172,32 @@ static id clientDevice(unsigned port) {
     id device = nil;
     const char *lastError = "";
     unsigned usable = 0;
+    /* Per-candidate outcome, in the order tried: 2/0/1 then 'E' (the bridge refused), 'W' (not
+     * writable), 'X' (no such directory) or 'O' (opened). Three of the poster extensions end with
+     * "no-device device: Vulkan(VkResultCode(-3))" while the same code hands a device to
+     * backboardd, SpringBoard, mediaserverd and WidgetRenderer, so the interesting question is
+     * which candidate each class got and what each attempt answered. */
+    char trace[24] = {};
+    /* The bridge dlopens this library in the calling process, and a sandbox that lets the file be
+     * stat'ed need not let it be loaded. Loading it here turns "the bridge refused" into either
+     * "this process cannot load Turnip" or "it loads and the device is still refused". */
+    {
+        void *probe = dlopen(turnip, RTLD_NOW | RTLD_LOCAL);
+        strlcat(trace, probe ? "L+" : "L-", sizeof trace);
+        if (probe) dlclose(probe);
+        else {
+            const char *why = dlerror();
+            strlcat(trace, why ? why : "?", sizeof trace);
+            if (strlen(trace) > 18) trace[18] = 0;
+            strlcat(trace, " ", sizeof trace);
+        }
+    }
     for (unsigned i : {2u, 0u, 1u}) {
         if (device) break;
-        if (!candidates[i][0]) continue;
+        if (!candidates[i][0]) { char one[4]; snprintf(one, sizeof one, "%uX", i); strlcat(trace, one, sizeof trace); continue; }
         if (i != 2) strlcat(candidates[i], "m2v", sizeof candidates[i]);
         mkdir(candidates[i], 0700);
-        if (access(candidates[i], W_OK) != 0) continue;
+        if (access(candidates[i], W_OK) != 0) { char one[4]; snprintf(one, sizeof one, "%uW", i); strlcat(trace, one, sizeof trace); continue; }
         ++usable;
         @try {
             device = native_bridge_metal_open(turnip, candidates[i], registryID, nullptr);
@@ -186,6 +206,7 @@ static id clientDevice(unsigned port) {
             lastError = "exception";
         }
         if (!device && !lastError[0]) lastError = nmb_last_error();
+        { char one[4]; snprintf(one, sizeof one, device ? "%uO" : "%uE", i); strlcat(trace, one, sizeof trace); }
     }
     if (!device && !usable) {
         setenv("METAL2VULKAN_SHADER_CACHE_OPTIONAL", "1", 1);
@@ -198,7 +219,11 @@ static id clientDevice(unsigned port) {
         }
         if (!device && !lastError[0]) lastError = nmb_last_error();
     }
-    if (!device) clientFailure(port, usable ? "no-device" : "no-cachedir", lastError);
+    if (!device) {
+        char detail[64];
+        snprintf(detail, sizeof detail, "%s %s", trace, lastError);
+        clientFailure(port, usable ? "no-device" : "no-cachedir", detail);
+    }
     // The client's first problem, once, on the same text line, sent from the thread that hit it: WidgetRenderer crashed on a nil render
     // encoder with no reason anywhere readable (its own log lines need the plugin's format strings, which the device does not keep), and a
     // once-a-second reader never ran before the crash (i568).
