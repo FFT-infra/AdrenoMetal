@@ -102,7 +102,7 @@ static void installCacheView(void) {
 // read-only union mount at a system path (docs/zh/drivers/ath12k-wifi.md, /usr/libexec/
 // unixnu-wpa_supplicant on sheng), so the job's program is /usr/libexec/adrenoprobed and this view
 // answers that name. The lower layer stays the sealed /usr/libexec for every other name.
-static void installLibexecView(void) {
+static void __attribute__((unused)) installLibexecView(void) {
     char text[128];
     if (mount("bindfs", "/usr/libexec", MNT_RDONLY | MNT_UNION, (void *)"/private/var/ngpu/usrlibexec") != 0) {
         snprintf(text, sizeof text, "LSINIT libexec view mount failed %d\n", errno);
@@ -151,7 +151,10 @@ int main() {
         size_t size = sizeof args;
         if (sysctlbyname("kern.bootargs", args, &size, nullptr, 0) == 0 && strstr(args, "sheng-xpccache=1")) {
             installCacheView();
-            installLibexecView();
+            // installLibexecView() is not called: in17-in20, the only boots that mount a union over
+            // /usr/libexec, never reached a desktop while in15/in16 (xpc view only) did. The launchd
+            // route it served is closed anyway (launch constraints); the mount is the prime suspect
+            // for the regression and is measured off in in21.
         }
     }
     requestMigration("/private/var/mobile");
