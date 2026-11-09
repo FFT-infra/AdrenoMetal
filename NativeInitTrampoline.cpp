@@ -12,6 +12,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/mount.h>
+#include <sys/sysctl.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -22,8 +24,14 @@ extern "C" int nativeInstallFix(int attempt);
 #define ATTEMPTS 24
 #define INTERVAL_US (5 * 1000 * 1000)
 
+// /dev/console does not reach the USB console here; the kernel probe reads this file instead.
 static void say(const char *text) {
     int fd = open("/dev/console", O_WRONLY);
+    if (fd >= 0) {
+        (void)!write(fd, text, strlen(text));
+        close(fd);
+    }
+    fd = open("/private/var/ngpu/lsinit.log", O_WRONLY | O_CREAT | O_APPEND, 0644);
     if (fd >= 0) {
         (void)!write(fd, text, strlen(text));
         close(fd);
@@ -49,6 +57,44 @@ static void repair(void) {
         usleep(INTERVAL_US);
     }
     say("LSINIT repair gave up\n");
+}
+
+// launchd starts /usr/libexec/pkd for PlugInKit discovery, and only launchd's own children have the
+// XPC bootstrap the LaunchServices call needs. The trampoline therefore copies the real daemon out of
+// the way first, then mounts the addon's directory over /usr/libexec as a union, so the name pkd
+// answers with the owner shim (NativePkdShim.cpp) while every other name stays the sealed file. A
+// refused copy or mount leaves the system exactly as it was.
+static int __attribute__((unused)) copyFile(const char *from, const char *to) {
+    const int in = open(from, O_RDONLY);
+    if (in < 0) return -1;
+    const int out = open(to, O_WRONLY | O_CREAT | O_TRUNC, 0755);
+    if (out < 0) { close(in); return -2; }
+    char buffer[65536];
+    ssize_t got;
+    int result = 0;
+    while ((got = read(in, buffer, sizeof buffer)) > 0) {
+        ssize_t sent = 0;
+        while (sent < got) {
+            const ssize_t n = write(out, buffer + sent, (size_t)(got - sent));
+            if (n <= 0) { result = -3; break; }
+            sent += n;
+        }
+        if (result) break;
+    }
+    if (got < 0 && !result) result = -4;
+    close(in);
+    close(out);
+    return result;
+}
+
+static void installCacheView(void) {
+    char text[128];
+    if (mount("bindfs", "/System/Library/xpc", MNT_RDONLY | MNT_UNION, (void *)"/private/var/ngpu/xpc") != 0) {
+        snprintf(text, sizeof text, "LSINIT xpc view mount failed %d\n", errno);
+        say(text);
+        return;
+    }
+    say("LSINIT xpc view mounted\n");
 }
 
 // The DataClassMigrator route: the system's own 00LaunchServicesMigrator reads
@@ -84,6 +130,11 @@ int main() {
             repair();
             _exit(0);
         }
+    }
+    {
+        char args[1024];
+        size_t size = sizeof args;
+        if (sysctlbyname("kern.bootargs", args, &size, nullptr, 0) == 0 && strstr(args, "sheng-xpccache=1")) installCacheView();
     }
     requestMigration("/private/var/mobile");
     requestMigration("/private/var/root");
