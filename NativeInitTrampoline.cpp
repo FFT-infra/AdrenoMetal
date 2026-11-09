@@ -97,6 +97,21 @@ static void installCacheView(void) {
     say("LSINIT xpc view mounted\n");
 }
 
+// The owner service under a system path. launchd's default system profile refused to posix_spawn
+// /private/var/ngpu/bin/adrenoprobed with EPERM; the documented owner-service exposure is a
+// read-only union mount at a system path (docs/zh/drivers/ath12k-wifi.md, /usr/libexec/
+// unixnu-wpa_supplicant on sheng), so the job's program is /usr/libexec/adrenoprobed and this view
+// answers that name. The lower layer stays the sealed /usr/libexec for every other name.
+static void installLibexecView(void) {
+    char text[128];
+    if (mount("bindfs", "/usr/libexec", MNT_RDONLY | MNT_UNION, (void *)"/private/var/ngpu/usrlibexec") != 0) {
+        snprintf(text, sizeof text, "LSINIT libexec view mount failed %d\n", errno);
+        say(text);
+        return;
+    }
+    say("LSINIT libexec view mounted\n");
+}
+
 // The DataClassMigrator route: the system's own 00LaunchServicesMigrator reads
 // _LSPrivateDatabaseNeedsRebuild from the standard defaults of the process that runs migrators and,
 // when it is set, calls the same LaunchServices rebuild this trampoline could not reach (no XPC
@@ -134,7 +149,10 @@ int main() {
     {
         char args[1024];
         size_t size = sizeof args;
-        if (sysctlbyname("kern.bootargs", args, &size, nullptr, 0) == 0 && strstr(args, "sheng-xpccache=1")) installCacheView();
+        if (sysctlbyname("kern.bootargs", args, &size, nullptr, 0) == 0 && strstr(args, "sheng-xpccache=1")) {
+            installCacheView();
+            installLibexecView();
+        }
     }
     requestMigration("/private/var/mobile");
     requestMigration("/private/var/root");
