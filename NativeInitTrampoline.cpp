@@ -123,17 +123,25 @@ static const char migration_request[] =
     "<plist version=\"1.0\"><dict><key>_LSPrivateDatabaseNeedsRebuild</key><true/></dict></plist>\n";
 
 static void requestMigration(const char *home) {
-    char dir[160], path[200];
+    char dir[160], path[200], text[260];
     snprintf(dir, sizeof dir, "%s/Library/Preferences", home);
     mkdir(dir, 0755);
     snprintf(dir, sizeof dir, "%s/Library", home);
     mkdir(dir, 0755);
     snprintf(path, sizeof path, "%s/Library/Preferences/com.apple.datamigrator.plist", home);
     int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-    if (fd >= 0) {
-        (void)!write(fd, migration_request, strlen(migration_request));
-        close(fd);
+    if (fd < 0) {
+        /* The migrator can only run if this file exists; a silent failure here is the difference
+         * between "the flag was ignored" and "the flag was never written". */
+        snprintf(text, sizeof text, "LSINIT migration flag %s: open failed %d\n", home, errno);
+        say(text);
+        return;
     }
+    const ssize_t wrote = write(fd, migration_request, strlen(migration_request));
+    close(fd);
+    snprintf(text, sizeof text, "LSINIT migration flag %s: %zd of %zu bytes\n", home, wrote,
+             strlen(migration_request));
+    say(text);
 }
 
 int main() {
