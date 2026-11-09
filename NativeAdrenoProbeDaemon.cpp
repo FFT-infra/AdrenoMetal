@@ -1,17 +1,21 @@
 // SPDX-License-Identifier: MIT
-// Adreno probe daemon: started by launchd from an owner job (a union view over /System/Library/LaunchDaemons, see the boot-time addon
-// mount), so it runs outside every sandbox profile. It waits for the Adreno accelerator service to appear, runs the shared userspace GPU
-// test once, then writes the system log for the UFS log export (NativeOsLogExport.mm) and exits. The test result reaches the kernel through
-// the driver's progress markers and SetMetadata.
+// Adreno probe daemon. The launchd job that names it is never loaded: launchd takes its system jobs from the signed cache in
+// /System/Library/xpc/launchd.plist, so the owner plists the addon mounts over /System/Library/LaunchDaemons are inert (lx1,
+// 2026-11-09). The owner root channel is the init trampoline instead (NativeInitTrampoline.cpp, patches/xnu/native-init-trampoline.patch).
+// This binary is kept because a launchd that does load owner jobs, on another OS build, starts it; it runs the LaunchServices repair
+// (NativeInstallFix.cpp), waits for the Adreno accelerator service, runs the shared userspace GPU test once, writes the system log for
+// the UFS log export (NativeOsLogExport.mm) and exits.
 #include <stdlib.h>
 #include "NativeAdrenoUserTest.h"
 
 extern "C" void nativeOsLogExport();
+extern "C" int nativeInstallFix(int);
 
 using MatchingFn = void *(*)(const char *);
 using GetServiceFn = unsigned (*)(unsigned, void *);
 
 int main() {
+    nativeInstallFix(0);
     void *iokit = dlopen("/System/Library/Frameworks/IOKit.framework/IOKit", RTLD_NOW | RTLD_LOCAL);
     if (!iokit) return 1;
     auto matching = (MatchingFn)dlsym(iokit, "IOServiceMatching");
